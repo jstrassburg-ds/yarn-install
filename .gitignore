@@ -7,5 +7,6 @@ build/
 /linux
 /darwin
 /windows
+build/
 
 !offline-mirror/
