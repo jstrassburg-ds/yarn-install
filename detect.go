@@ -23,14 +23,26 @@ func Detect() packit.DetectFunc {
 			return packit.DetectResult{}, err
 		}
 
-		exists, err := fs.Exists(filepath.Join(projectPath, "yarn.lock"))
+		// Parse .yarnrc.yml if it exists
+		yarnrcConfig, err := ParseYarnrcYml(projectPath)
 		if err != nil {
 			return packit.DetectResult{}, err
 		}
 
-		if !exists {
-			return packit.DetectResult{}, packit.Fail.WithMessage("no 'yarn.lock' file found in the project path %s", projectPath)
+		// Check for .yarnrc.yml OR yarn.lock
+		hasYarnrcYml := yarnrcConfig != nil
+
+		hasYarnLock, err := fs.Exists(filepath.Join(projectPath, YarnLock))
+		if err != nil {
+			return packit.DetectResult{}, err
 		}
+
+		if !hasYarnrcYml && !hasYarnLock {
+			return packit.DetectResult{}, packit.Fail.WithMessage("no '%s' or '%s' file found in the project path %s", YarnrcYml, YarnLock, projectPath)
+		}
+
+		// Determine what to provide based on configuration
+		provisionType := DetermineProvisionType(projectPath, yarnrcConfig)
 
 		pkg, err := libnodejs.ParsePackageJSON(projectPath)
 		if err != nil {
@@ -60,7 +72,7 @@ func Detect() packit.DetectFunc {
 		return packit.DetectResult{
 			Plan: packit.BuildPlan{
 				Provides: []packit.BuildPlanProvision{
-					{Name: PlanDependencyNodeModules},
+					{Name: provisionType},
 				},
 				Requires: []packit.BuildPlanRequirement{
 					nodeRequirement,

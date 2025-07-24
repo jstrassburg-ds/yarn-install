@@ -10,6 +10,8 @@ import (
 	"github.com/paketo-buildpacks/libnodejs"
 	"github.com/paketo-buildpacks/packit/v2"
 	"github.com/paketo-buildpacks/packit/v2/chronos"
+	"github.com/paketo-buildpacks/packit/v2/fs"
+	"github.com/paketo-buildpacks/packit/v2/pexec"
 	"github.com/paketo-buildpacks/packit/v2/sbom"
 	"github.com/paketo-buildpacks/packit/v2/scribe"
 )
@@ -42,7 +44,7 @@ type ConfigurationManager interface {
 	DeterminePath(typ, platformDir, entry string) (path string, err error)
 }
 
-func Build( entryResolver EntryResolver,
+func Build(entryResolver EntryResolver,
 	configurationManager ConfigurationManager,
 	homeDir string,
 	symlinker SymlinkManager,
@@ -57,6 +59,34 @@ func Build( entryResolver EntryResolver,
 		projectPath, err := libnodejs.FindProjectPath(context.WorkingDir)
 		if err != nil {
 			return packit.BuildResult{}, err
+		}
+
+		// Determine Yarn version and provision type
+		yarnVersion, err := DetermineYarnVersion(projectPath)
+		if err != nil {
+			return packit.BuildResult{}, err
+		}
+
+		yarnrcConfig, err := ParseYarnrcYml(projectPath)
+		if err != nil {
+			return packit.BuildResult{}, err
+		}
+
+		provisionType := DetermineProvisionType(projectPath, yarnrcConfig)
+		logger.Process("Detected Yarn %s, providing %s", yarnVersion, provisionType)
+
+		// Choose the appropriate install process
+		var actualInstallProcess InstallProcess
+		if yarnVersion == YarnBerry {
+			logger.Subprocess("Using Yarn Berry install process")
+			actualInstallProcess = NewBerryInstallProcess(
+				pexec.NewExecutable("yarn"),
+				fs.NewChecksumCalculator(),
+				logger,
+			)
+		} else {
+			logger.Subprocess("Using Yarn Classic install process")
+			actualInstallProcess = installProcess
 		}
 
 		globalNpmrcPath, err := configurationManager.DeterminePath("npmrc", context.Platform.Path, ".npmrc")
@@ -83,7 +113,8 @@ func Build( entryResolver EntryResolver,
 			}
 		}
 
-		launch, build := entryResolver.MergeLayerTypes(PlanDependencyNodeModules, context.Plan.Entries)
+		// Use the detected provision type for layer resolution
+		launch, build := entryResolver.MergeLayerTypes(provisionType, context.Plan.Entries)
 
 		sbomDisabled, err := checkSbomDisabled()
 		if err != nil {
@@ -100,7 +131,7 @@ func Build( entryResolver EntryResolver,
 
 			logger.Process("Resolving installation process")
 
-			run, sha, err := installProcess.ShouldRun(projectPath, layer.Metadata)
+			run, sha, err := actualInstallProcess.ShouldRun(projectPath, layer.Metadata)
 			if err != nil {
 				return packit.BuildResult{}, err
 			}
@@ -115,13 +146,13 @@ func Build( entryResolver EntryResolver,
 					return packit.BuildResult{}, err
 				}
 
-				currentModLayer, err = installProcess.SetupModules(projectPath, currentModLayer, layer.Path)
+				currentModLayer, err = actualInstallProcess.SetupModules(projectPath, currentModLayer, layer.Path)
 				if err != nil {
 					return packit.BuildResult{}, err
 				}
 
 				duration, err := clock.Measure(func() error {
-					return installProcess.Execute(projectPath, layer.Path, false)
+					return actualInstallProcess.Execute(projectPath, layer.Path, false)
 				})
 				if err != nil {
 					return packit.BuildResult{}, err
@@ -134,9 +165,12 @@ func Build( entryResolver EntryResolver,
 					"cache_sha": sha,
 				}
 
-				err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
-				if err != nil {
-					return packit.BuildResult{}, err
+				// Only setup node_modules symlink for non-PnP projects
+				if provisionType == PlanDependencyNodeModules {
+					err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
+					if err != nil {
+						return packit.BuildResult{}, err
+					}
 				}
 
 				path := filepath.Join(layer.Path, "node_modules", ".bin")
@@ -171,9 +205,12 @@ func Build( entryResolver EntryResolver,
 			} else {
 				logger.Process("Reusing cached layer %s", layer.Path)
 
-				err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
-				if err != nil {
-					return packit.BuildResult{}, err
+				// Only setup node_modules symlink for non-PnP projects
+				if provisionType == PlanDependencyNodeModules {
+					err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
+					if err != nil {
+						return packit.BuildResult{}, err
+					}
 				}
 			}
 
@@ -191,7 +228,7 @@ func Build( entryResolver EntryResolver,
 
 			logger.Process("Resolving installation process")
 
-			run, sha, err := installProcess.ShouldRun(projectPath, layer.Metadata)
+			run, sha, err := actualInstallProcess.ShouldRun(projectPath, layer.Metadata)
 			if err != nil {
 				return packit.BuildResult{}, err
 			}
@@ -206,13 +243,13 @@ func Build( entryResolver EntryResolver,
 					return packit.BuildResult{}, err
 				}
 
-				_, err = installProcess.SetupModules(projectPath, currentModLayer, layer.Path)
+				_, err = actualInstallProcess.SetupModules(projectPath, currentModLayer, layer.Path)
 				if err != nil {
 					return packit.BuildResult{}, err
 				}
 
 				duration, err := clock.Measure(func() error {
-					return installProcess.Execute(projectPath, layer.Path, true)
+					return actualInstallProcess.Execute(projectPath, layer.Path, true)
 				})
 				if err != nil {
 					return packit.BuildResult{}, err
@@ -222,9 +259,12 @@ func Build( entryResolver EntryResolver,
 				logger.Break()
 
 				if !build {
-					err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
-					if err != nil {
-						return packit.BuildResult{}, err
+					// Only setup node_modules symlink for non-PnP projects
+					if provisionType == PlanDependencyNodeModules {
+						err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
+						if err != nil {
+							return packit.BuildResult{}, err
+						}
 					}
 				}
 
@@ -267,9 +307,12 @@ func Build( entryResolver EntryResolver,
 			} else {
 				logger.Process("Reusing cached layer %s", layer.Path)
 				if !build {
-					err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
-					if err != nil {
-						return packit.BuildResult{}, err
+					// Only setup node_modules symlink for non-PnP projects
+					if provisionType == PlanDependencyNodeModules {
+						err = ensureNodeModulesSymlink(projectPath, layer.Path, tmpDir)
+						if err != nil {
+							return packit.BuildResult{}, err
+						}
 					}
 				}
 			}

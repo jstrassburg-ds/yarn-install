@@ -16,9 +16,9 @@ func testDetect(t *testing.T, context spec.G, it spec.S) {
 	var (
 		Expect = NewWithT(t).Expect
 
-		filePath	  string
-		workingDir        string
-		detect            packit.DetectFunc
+		filePath   string
+		workingDir string
+		detect     packit.DetectFunc
 	)
 
 	it.Before(func() {
@@ -113,7 +113,7 @@ func testDetect(t *testing.T, context spec.G, it spec.S) {
 			_, err := detect(packit.DetectContext{
 				WorkingDir: workingDir,
 			})
-			Expect(err).To(MatchError(packit.Fail.WithMessage("no 'yarn.lock' file found in the project path %s", filepath.Join(workingDir, "custom"))))
+			Expect(err).To(MatchError(packit.Fail.WithMessage("no '.yarnrc.yml' or 'yarn.lock' file found in the project path %s", filepath.Join(workingDir, "custom"))))
 		})
 	})
 
