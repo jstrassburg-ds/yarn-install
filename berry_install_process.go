@@ -220,7 +220,7 @@ func (ip BerryInstallProcess) executeNodeModulesInstall(workingDir, modulesLayer
 	environment = append(environment, fmt.Sprintf("PATH=%s%c%s", os.Getenv("PATH"), os.PathListSeparator, filepath.Join("node_modules", ".bin")))
 
 	// Use --immutable instead of --frozen-lockfile for Berry
-	installArgs := []string{"install", "--ignore-engines"}
+	installArgs := []string{"install"}
 
 	// Check if immutable installs are disabled
 	if config == nil || config.EnableImmutableInstalls == nil || *config.EnableImmutableInstalls {
@@ -263,7 +263,7 @@ func (ip BerryInstallProcess) executePnPInstall(workingDir, modulesLayerPath str
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	installArgs := []string{"install", "--ignore-engines"}
+	installArgs := []string{"install"}
 
 	// Check if immutable installs are disabled
 	if config == nil || config.EnableImmutableInstalls == nil || *config.EnableImmutableInstalls {
