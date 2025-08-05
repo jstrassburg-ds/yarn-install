@@ -1,0 +1,18 @@
+{
+  "name": "berry_with_build_script",
+  "version": "0.0.0",
+  "description": "Berry app with build script",
+  "scripts": {
+    "build": "echo 'Building the application...' && echo 'Build completed successfully!'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "leftpad": "~0.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

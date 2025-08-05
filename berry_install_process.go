@@ -208,11 +208,23 @@ func (ip BerryInstallProcess) Execute(workingDir, modulesLayerPath string, launc
 
 	usesNodeModules := ShouldUseNodeModules(workingDir, yarnrcConfig)
 
+	var installErr error
 	if usesNodeModules {
-		return ip.executeNodeModulesInstall(workingDir, modulesLayerPath, launch, yarnrcConfig)
+		installErr = ip.executeNodeModulesInstall(workingDir, modulesLayerPath, launch, yarnrcConfig)
+	} else {
+		installErr = ip.executePnPInstall(workingDir, modulesLayerPath, launch, yarnrcConfig)
 	}
 
-	return ip.executePnPInstall(workingDir, modulesLayerPath, launch, yarnrcConfig)
+	if installErr != nil {
+		return installErr
+	}
+
+	// Execute build scripts if BP_NODE_RUN_SCRIPTS is set
+	if buildScripts := os.Getenv("BP_NODE_RUN_SCRIPTS"); buildScripts != "" {
+		return ip.executeRunScripts(workingDir, buildScripts)
+	}
+
+	return nil
 }
 
 func (ip BerryInstallProcess) executeNodeModulesInstall(workingDir, modulesLayerPath string, launch bool, config *YarnrcConfig) error {
@@ -287,6 +299,33 @@ func (ip BerryInstallProcess) executePnPInstall(workingDir, modulesLayerPath str
 	})
 	if err != nil {
 		return fmt.Errorf("failed to execute yarn install (PnP): %w", err)
+	}
+
+	return nil
+}
+
+// executeRunScripts runs the specified build scripts using yarn
+func (ip BerryInstallProcess) executeRunScripts(workingDir, scripts string) error {
+	// Parse comma-separated list of scripts
+	scriptList := strings.Split(scripts, ",")
+
+	for _, script := range scriptList {
+		script = strings.TrimSpace(script)
+		if script == "" {
+			continue
+		}
+
+		ip.logger.Subprocess("Running 'yarn run %s'", script)
+
+		err := ip.executable.Execute(pexec.Execution{
+			Args:   []string{"run", script},
+			Stdout: ip.logger.ActionWriter,
+			Stderr: ip.logger.ActionWriter,
+			Dir:    workingDir,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to execute yarn run %s: %w", script, err)
+		}
 	}
 
 	return nil
