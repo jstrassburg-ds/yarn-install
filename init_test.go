@@ -15,5 +15,7 @@ func TestUnitYarn(t *testing.T) {
 	suite("InstallProcess", testInstallProcess)
 	suite("PackageManagerConfigurationManager", testPackageManagerConfigurationManager)
 	suite("Symlinker", testSymlinker)
+	suite("YarnrcParser", testYarnrcParser)
+	suite("YarnBerryIntegration", testYarnBerryIntegration)
 	suite.Run(t)
 }

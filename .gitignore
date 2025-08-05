@@ -3,5 +3,6 @@
 .idea
 /.bin
 /bin/
+build/
 
 !offline-mirror/
