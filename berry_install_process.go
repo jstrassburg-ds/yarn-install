@@ -328,5 +328,43 @@ func (ip BerryInstallProcess) executeRunScripts(workingDir, scripts string) erro
 		}
 	}
 
+	// After build scripts complete, enable group write permissions on BP_WEB_SERVER_ROOT
+	if webServerRoot := os.Getenv("BP_WEB_SERVER_ROOT"); webServerRoot != "" {
+		webServerRootPath := filepath.Join(workingDir, webServerRoot)
+
+		// Check if the directory exists before attempting to change permissions
+		if info, err := os.Stat(webServerRootPath); err == nil && info.IsDir() {
+			ip.logger.Subprocess("Enabling group write permissions on %s directory", webServerRoot)
+
+			// Get current permissions and add group write (0020)
+			currentMode := info.Mode()
+			newMode := currentMode | 0020 // Add group write permission
+
+			err := os.Chmod(webServerRootPath, newMode)
+			if err != nil {
+				// If chmod fails, log warning but don't fail the build
+				ip.logger.Subprocess("Warning: Could not change permissions on %s: %v", webServerRoot, err)
+			} else {
+				ip.logger.Subprocess("Successfully enabled group write on %s", webServerRoot)
+			}
+
+			// Also enable group write on env.js if it exists
+			envJsPath := filepath.Join(webServerRootPath, "env.js")
+			if envInfo, err := os.Stat(envJsPath); err == nil && !envInfo.IsDir() {
+				ip.logger.Subprocess("Enabling group write permissions on %s/env.js", webServerRoot)
+
+				envCurrentMode := envInfo.Mode()
+				envNewMode := envCurrentMode | 0020 // Add group write permission
+
+				err := os.Chmod(envJsPath, envNewMode)
+				if err != nil {
+					ip.logger.Subprocess("Warning: Could not change permissions on %s/env.js: %v", webServerRoot, err)
+				} else {
+					ip.logger.Subprocess("Successfully enabled group write on %s/env.js", webServerRoot)
+				}
+			}
+		}
+	}
+
 	return nil
 }
