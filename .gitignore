@@ -4,5 +4,8 @@
 /.bin
 /bin/
 build/
+/linux
+/darwin
+/windows
 
 !offline-mirror/
