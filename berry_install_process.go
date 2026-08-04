@@ -239,13 +239,6 @@ func (ip BerryInstallProcess) executeNodeModulesInstall(workingDir, modulesLayer
 		installArgs = append(installArgs, "--immutable")
 	}
 
-	if !launch {
-		installArgs = append(installArgs, "--production", "false")
-	}
-
-	// For Berry node_modules, set modules folder
-	installArgs = append(installArgs, "--modules-folder", filepath.Join(modulesLayerPath, "node_modules"))
-
 	ip.logger.Subprocess("Running 'yarn %s'", strings.Join(installArgs, " "))
 
 	err := ip.executable.Execute(pexec.Execution{
@@ -280,12 +273,6 @@ func (ip BerryInstallProcess) executePnPInstall(workingDir, modulesLayerPath str
 	// Check if immutable installs are disabled
 	if config == nil || config.EnableImmutableInstalls == nil || *config.EnableImmutableInstalls {
 		installArgs = append(installArgs, "--immutable")
-	}
-
-	if !launch {
-		// For Berry, we might not need --production for PnP since dependencies are resolved differently
-		// But keeping for compatibility
-		installArgs = append(installArgs, "--production", "false")
 	}
 
 	ip.logger.Subprocess("Running 'yarn %s' (PnP)", strings.Join(installArgs, " "))
