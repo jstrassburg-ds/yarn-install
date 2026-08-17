@@ -124,11 +124,25 @@ func (ip BerryInstallProcess) shouldRunForPnP(workingDir string, config *YarnrcC
 	}
 	ip.logger.Action("Yarn cache -> %t", hasCache)
 
+	// Check for a previously-built layer we could actually reuse. Returning
+	// run=false tells the caller to skip install AND mark the launch layer
+	// for reuse, so we can only take that shortcut when a prior build wrote
+	// a cache_sha to layer metadata. On first-time builds (no prior
+	// metadata), skipping install produces a phantom launch-layer reuse
+	// request that the CNB lifecycle rejects with
+	//   cannot reuse '<bp-id>:launch-modules', previous image has no
+	//   metadata for layer '<bp-id>:launch-modules'
+	// The on-disk Zero-Installs shortcut only makes sense once a real
+	// launch layer already exists.
+	_, hasPrevBuild := metadata["cache_sha"].(string)
+	ip.logger.Action("Prior build metadata -> %t", hasPrevBuild)
+
 	ip.logger.Break()
 
 	// According to RFC, should NOT run install when:
 	// .yarnrc.yml, .pnp.cjs file and a local cache are present
-	if hasYarnrcYml && hasPnpFiles && hasCache {
+	// AND a prior build wrote a launch layer we can reuse.
+	if hasYarnrcYml && hasPnpFiles && hasCache && hasPrevBuild {
 		ip.logger.Action("PnP setup complete, skipping install")
 		return false, "", nil
 	}
@@ -136,6 +150,7 @@ func (ip BerryInstallProcess) shouldRunForPnP(workingDir string, config *YarnrcC
 	// Should run install in other cases:
 	// - No local cache
 	// - No .pnp.cjs file
+	// - First-time build with no prior launch layer to reuse
 	return true, "", nil
 }
 
