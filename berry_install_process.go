@@ -225,9 +225,9 @@ func (ip BerryInstallProcess) Execute(workingDir, modulesLayerPath string, launc
 
 	var installErr error
 	if usesNodeModules {
-		installErr = ip.executeNodeModulesInstall(workingDir, modulesLayerPath, launch, yarnrcConfig)
+		installErr = ip.executeNodeModulesInstall(workingDir, modulesLayerPath, yarnrcConfig)
 	} else {
-		installErr = ip.executePnPInstall(workingDir, modulesLayerPath, launch, yarnrcConfig)
+		installErr = ip.executePnPInstall(workingDir, modulesLayerPath, yarnrcConfig)
 	}
 
 	if installErr != nil {
@@ -236,15 +236,67 @@ func (ip BerryInstallProcess) Execute(workingDir, modulesLayerPath string, launc
 
 	// Execute build scripts if BP_NODE_RUN_SCRIPTS is set
 	if buildScripts := os.Getenv("BP_NODE_RUN_SCRIPTS"); buildScripts != "" {
-		return ip.executeRunScripts(workingDir, buildScripts)
+		err = ip.executeRunScripts(workingDir, buildScripts)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Pruning has to come last: the build scripts above are what need the
+	// devDependencies (vite, tsc, test tooling), and they run from this same
+	// layer. Dropping the packages first would break 'yarn build'.
+	if launch {
+		ip.pruneDevDependencies(workingDir, modulesLayerPath, usesNodeModules)
 	}
 
 	return nil
 }
 
-func (ip BerryInstallProcess) executeNodeModulesInstall(workingDir, modulesLayerPath string, launch bool, config *YarnrcConfig) error {
-	environment := os.Environ()
-	environment = append(environment, fmt.Sprintf("PATH=%s%c%s", os.Getenv("PATH"), os.PathListSeparator, filepath.Join("node_modules", ".bin")))
+// berryEnvironment builds the process environment every yarn invocation for a
+// given install strategy shares. The prune step has to run under the same
+// environment as the install that preceded it, or it resolves against a
+// different cache than the one it is meant to trim.
+func (ip BerryInstallProcess) berryEnvironment(modulesLayerPath string, usesNodeModules bool) []string {
+	if usesNodeModules {
+		return append(os.Environ(), fmt.Sprintf("PATH=%s%c%s", os.Getenv("PATH"), os.PathListSeparator, filepath.Join("node_modules", ".bin")))
+	}
+
+	return append(os.Environ(), fmt.Sprintf("YARN_CACHE_FOLDER=%s", filepath.Join(modulesLayerPath, "cache")))
+}
+
+// pruneDevDependencies trims devDependencies out of the launch layer so they
+// do not ship in the runtime image.
+//
+// '--all' focuses every workspace rather than just the one in workingDir. On a
+// single-package project the two are equivalent, but at a monorepo root the
+// unqualified form focuses only the root manifest and strips packages the
+// child workspaces need at runtime. Erring toward keeping too much is the safe
+// direction here.
+//
+// A failure is logged and swallowed. 'yarn workspaces focus' only ships in the
+// default distribution from Yarn 4 onward - on Yarn 2 and 3 it requires
+// 'yarn plugin import workspace-tools' - and an image that is larger than
+// necessary beats a build that refuses to complete. The layer then keeps its
+// devDependencies, which is what every build did before pruning existed.
+func (ip BerryInstallProcess) pruneDevDependencies(workingDir, modulesLayerPath string, usesNodeModules bool) {
+	pruneArgs := []string{"workspaces", "focus", "--all", "--production"}
+
+	ip.logger.Subprocess("Running 'yarn %s'", strings.Join(pruneArgs, " "))
+
+	err := ip.executable.Execute(pexec.Execution{
+		Args:   pruneArgs,
+		Env:    ip.berryEnvironment(modulesLayerPath, usesNodeModules),
+		Stdout: ip.logger.ActionWriter,
+		Stderr: ip.logger.ActionWriter,
+		Dir:    workingDir,
+	})
+	if err != nil {
+		ip.logger.Subprocess("Warning: failed to prune devDependencies, launch layer will keep them: %s", err)
+	}
+}
+
+func (ip BerryInstallProcess) executeNodeModulesInstall(workingDir, modulesLayerPath string, config *YarnrcConfig) error {
+	environment := ip.berryEnvironment(modulesLayerPath, true)
 
 	// Use --immutable instead of --frozen-lockfile for Berry
 	installArgs := []string{"install"}
@@ -270,14 +322,11 @@ func (ip BerryInstallProcess) executeNodeModulesInstall(workingDir, modulesLayer
 	return nil
 }
 
-func (ip BerryInstallProcess) executePnPInstall(workingDir, modulesLayerPath string, launch bool, config *YarnrcConfig) error {
-	environment := os.Environ()
+func (ip BerryInstallProcess) executePnPInstall(workingDir, modulesLayerPath string, config *YarnrcConfig) error {
+	environment := ip.berryEnvironment(modulesLayerPath, false)
 
-	// Set up cache folder to point to layer
+	// Ensure the layer-local cache directory the environment points at exists
 	cacheDir := filepath.Join(modulesLayerPath, "cache")
-	environment = append(environment, fmt.Sprintf("YARN_CACHE_FOLDER=%s", cacheDir))
-
-	// Ensure cache directory exists
 	err := os.MkdirAll(cacheDir, os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
