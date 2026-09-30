@@ -63,11 +63,11 @@ func (ip BerryInstallProcess) ShouldRun(workingDir string, metadata map[string]i
 	return ip.shouldRunForPnP(workingDir, yarnrcConfig, metadata)
 }
 
-func (ip BerryInstallProcess) shouldRunForNodeModules(workingDir string, metadata map[string]interface{}) (bool, string, error) {
+func (ip BerryInstallProcess) shouldRunForNodeModules(workingDir string, metadata map[string]interface{}) (run bool, sha string, err error) {
 	// For node_modules, check if yarn.lock has changed (similar to Classic)
 	buffer := bytes.NewBuffer(nil)
 
-	err := ip.executable.Execute(pexec.Execution{
+	err = ip.executable.Execute(pexec.Execution{
 		Args:   []string{"info", "--all", "--json"},
 		Stdout: buffer,
 		Stderr: buffer,
@@ -85,7 +85,11 @@ func (ip BerryInstallProcess) shouldRunForNodeModules(workingDir string, metadat
 	if err != nil {
 		return true, "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeFileErr := file.Close(); closeFileErr != nil && err == nil {
+			err = fmt.Errorf("failed to close temp file: %w", closeFileErr)
+		}
+	}()
 
 	_, err = file.Write(buffer.Bytes())
 	if err != nil {
