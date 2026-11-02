@@ -81,6 +81,8 @@ func testLogging(t *testing.T, context spec.G, it spec.S) {
 
 			Expect(logs).To(ContainLines(
 				fmt.Sprintf("%s%s %s", extenderBuildStr, buildpackInfo.Buildpack.Name, "1.2.3"),
+				extenderBuildStr+"  Detected Yarn classic, providing node_modules",
+				extenderBuildStr+"    Using Yarn Classic install process",
 				extenderBuildStr+"  Resolving installation process",
 				extenderBuildStr+"    Process inputs:",
 				extenderBuildStr+"      yarn.lock -> Found",
@@ -153,6 +155,8 @@ func testLogging(t *testing.T, context spec.G, it spec.S) {
 
 			Expect(logs).To(ContainLines(
 				fmt.Sprintf("%s %s", buildpackInfo.Buildpack.Name, "1.2.3"),
+				"  Detected Yarn classic, providing node_modules",
+				"    Using Yarn Classic install process",
 				"  Resolving installation process",
 				"    Process inputs:",
 				"      yarn.lock -> Found",
@@ -217,6 +221,8 @@ func testLogging(t *testing.T, context spec.G, it spec.S) {
 
 			Expect(logs).To(ContainLines(
 				fmt.Sprintf("%s%s %s", extenderBuildStr, buildpackInfo.Buildpack.Name, "1.2.3"),
+				extenderBuildStr+"  Detected Yarn classic, providing node_modules",
+				extenderBuildStr+"    Using Yarn Classic install process",
 				extenderBuildStr+"  Resolving installation process",
 				extenderBuildStr+"    Process inputs:",
 				extenderBuildStr+"      yarn.lock -> Found",
